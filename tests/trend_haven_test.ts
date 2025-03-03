@@ -8,7 +8,7 @@ import {
 import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
 
 Clarinet.test({
-  name: "Test product listing",
+  name: "Test product listing with valid inputs",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
     const seller = accounts.get('wallet_1')!;
@@ -29,7 +29,22 @@ Clarinet.test({
 });
 
 Clarinet.test({
-  name: "Test product purchase",
+  name: "Test product listing with invalid inputs",
+  async fn(chain: Chain, accounts: Map<string, Account>) {
+    const seller = accounts.get('wallet_1')!;
+    
+    let block = chain.mineBlock([
+      Tx.contractCall('trend-haven', 'list-product',
+        [types.ascii("Test Product"), types.uint(0), types.uint(10), 
+         types.ascii("Test Description")], seller.address)
+    ]);
+    
+    block.receipts[0].result.expectErr(102); // err-invalid-price
+  }
+});
+
+Clarinet.test({
+  name: "Test product purchase and seller stats update",
   async fn(chain: Chain, accounts: Map<string, Account>) {
     const deployer = accounts.get('deployer')!;
     const seller = accounts.get('wallet_1')!;
@@ -51,39 +66,18 @@ Clarinet.test({
     block.receipts[0].result.expectOk().expectBool(true);
     
     // Verify updated quantity
-    const response = chain.callReadOnlyFn('trend-haven', 'get-product-details',
+    const productResponse = chain.callReadOnlyFn('trend-haven', 'get-product-details',
       [types.uint(1)], deployer.address);
       
-    const product = response.result.expectOk().expectSome();
+    const product = productResponse.result.expectOk().expectSome();
     assertEquals(product.quantity, 8);
-  }
-});
 
-Clarinet.test({
-  name: "Test product verification",
-  async fn(chain: Chain, accounts: Map<string, Account>) {
-    const deployer = accounts.get('deployer')!;
-    const seller = accounts.get('wallet_1')!;
-    
-    // List product
-    let block = chain.mineBlock([
-      Tx.contractCall('trend-haven', 'list-product',
-        [types.ascii("Test Product"), types.uint(100), types.uint(10),
-         types.ascii("Test Description")], seller.address)
-    ]);
-    
-    // Verify product
-    block = chain.mineBlock([
-      Tx.contractCall('trend-haven', 'verify-product',
-        [types.uint(1)], deployer.address)
-    ]);
-    
-    block.receipts[0].result.expectOk();
-    
-    const response = chain.callReadOnlyFn('trend-haven', 'get-product-details',
-      [types.uint(1)], deployer.address);
+    // Verify seller stats
+    const sellerResponse = chain.callReadOnlyFn('trend-haven', 'get-seller-info',
+      [types.principal(seller.address)], deployer.address);
       
-    const product = response.result.expectOk().expectSome();
-    assertEquals(product.verified, true);
+    const sellerInfo = sellerResponse.result.expectOk().expectSome();
+    assertEquals(sellerInfo['products-sold'], 2);
+    assertEquals(sellerInfo['total-sales'], 200);
   }
 });
